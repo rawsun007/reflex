@@ -12,6 +12,7 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 from types import FrameType, ModuleType
+from typing import overload
 
 from rich.console import Console
 from rich.progress import MofNCompleteColumn, Progress, TaskID, TimeElapsedColumn
@@ -394,6 +395,24 @@ def error(msg: str, *, dedupe: bool = False, **kwargs):
         _print_stderr(f"[red]{msg}[/red]", **kwargs)
     if should_use_log_file_console():
         print_to_log_file(f"[red]{msg}[/red]", **kwargs)
+
+
+@overload
+def ask(
+    question: str,
+    choices: list[str] | None = None,
+    *,
+    show_choices: bool = True,
+) -> str: ...
+
+
+@overload
+def ask(
+    question: str,
+    choices: list[str] | None = None,
+    default: str = ...,
+    show_choices: bool = True,
+) -> str: ...
 
 
 def ask(

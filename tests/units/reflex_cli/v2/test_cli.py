@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import logging
 from collections.abc import Callable
 from unittest.mock import MagicMock
 
@@ -9,8 +10,22 @@ import httpx
 import pytest
 from packaging import version
 from pytest_mock import MockerFixture, MockFixture
+from reflex_base.utils.log import SUCCESS
 from reflex_cli.utils import hosting
 from reflex_cli.v2 import cli
+
+
+def _log_messages(caplog: pytest.LogCaptureFixture, level: int) -> list[str]:
+    """Return the captured log messages emitted at the given level.
+
+    Args:
+        caplog: The pytest log capture fixture.
+        level: The numeric log level to filter records by.
+
+    Returns:
+        The formatted messages of the matching records.
+    """
+    return [r.getMessage() for r in caplog.records if r.levelno == level]
 
 
 def test_login_success_existing_token(mocker: MockFixture):
@@ -53,17 +68,14 @@ def test_login_failure(mocker: MockFixture):
     mock_authenticate_on_browser.assert_called_once()
 
 
-def test_logout(mocker: MockFixture):
+def test_logout(mocker: MockFixture, caplog: pytest.LogCaptureFixture):
     mock_delete_token = mocker.patch(
         "reflex_cli.utils.hosting.delete_token_from_config",
-    )
-    mock_success = mocker.patch(
-        "reflex_cli.utils.console.success",
     )
 
     cli.logout()
     mock_delete_token.assert_called_once()
-    mock_success.assert_called_once_with("Successfully logged out.")
+    assert _log_messages(caplog, SUCCESS) == ["Successfully logged out."]
 
 
 @pytest.fixture
@@ -280,6 +292,7 @@ def test_deploy_non_interactive_project_name(
 def test_deploy_non_interactive_project_name_multiple_values(
     mocker: MockerFixture,
     mock_export_fn: Callable[[str, str, str, bool, bool, bool, bool], None],
+    caplog: pytest.LogCaptureFixture,
 ):
     mocker.patch(
         "reflex_cli.utils.hosting.get_authenticated_client",
@@ -327,7 +340,6 @@ def test_deploy_non_interactive_project_name_multiple_values(
     mocker.patch(
         "reflex_cli.utils.hosting.requires_authenticated", return_value="fake_token"
     )
-    console_error = mocker.patch("reflex_cli.utils.console.error")
 
     with pytest.raises(click.exceptions.Exit):
         cli.deploy(
@@ -336,9 +348,9 @@ def test_deploy_non_interactive_project_name_multiple_values(
             interactive=False,
             project_name="fake-project",
         )
-    console_error.assert_called_once_with(
+    assert _log_messages(caplog, logging.ERROR) == [
         "Multiple projects with the name 'fake-project' found. Please provide a unique name."
-    )
+    ]
 
 
 def test_deploy_interactive_project_name_multiple_values(
@@ -425,7 +437,10 @@ def test_deploy_interactive_project_name_multiple_values(
     ],
 )
 def test_deploy_non_interactive_no_app_name_and_id(
-    mocker: MockerFixture, app_name: str | None, app_id: str | None
+    mocker: MockerFixture,
+    app_name: str | None,
+    app_id: str | None,
+    caplog: pytest.LogCaptureFixture,
 ):
     mocker.patch(
         "reflex_cli.utils.hosting.get_authenticated_client",
@@ -440,16 +455,14 @@ def test_deploy_non_interactive_no_app_name_and_id(
     mocker.patch(
         "reflex_cli.utils.hosting.get_project",
     )
-    console_error = mocker.patch("reflex_cli.utils.console.error")
-
     with pytest.raises(click.exceptions.Exit):
         cli.deploy(
             app_name=app_name, app_id=app_id, export_fn=MagicMock(), interactive=False
         )
 
-    console_error.assert_called_once_with(
+    assert _log_messages(caplog, logging.ERROR) == [
         "Please provide a valid app name or ID for the deployed instance."
-    )
+    ]
 
 
 def test_deploy_non_interactive_export_failure(
@@ -503,8 +516,15 @@ def test_deploy_non_interactive_export_failure(
 def test_deploy_envfile_missing_python_dotenv_exits(
     mocker: MockerFixture,
     mock_export_fn: MagicMock,
+    caplog: pytest.LogCaptureFixture,
 ):
-    """Deploy should exit when --envfile is used without python-dotenv."""
+    """Deploy should exit when --envfile is used without python-dotenv.
+
+    Args:
+        mocker: The pytest-mock fixture.
+        mock_export_fn: The mocked export function.
+        caplog: The pytest log capture fixture.
+    """
     import builtins
 
     mocker.patch(
@@ -544,8 +564,6 @@ def test_deploy_envfile_missing_python_dotenv_exits(
         "reflex_cli.utils.hosting.watch_deployment_status",
         return_value={"status": "ready"},
     )
-    console_error = mocker.patch("reflex_cli.utils.console.error")
-
     real_import = builtins.__import__
 
     def _mock_import(name: str, *args, **kwargs):
@@ -563,15 +581,18 @@ def test_deploy_envfile_missing_python_dotenv_exits(
             envfile=".env",
         )
 
-    console_error.assert_any_call(
+    assert (
         """The `python-dotenv` package is required to load environment variables from a file. Run `pip install "python-dotenv>=1.0.1"`."""
+        in _log_messages(caplog, logging.ERROR)
     )
     mock_export_fn.assert_not_called()
     create_deployment.assert_not_called()
     watch_deployment.assert_not_called()
 
 
-def test_deploy_non_interactive_with_invalid_project(mocker: MockFixture):
+def test_deploy_non_interactive_with_invalid_project(
+    mocker: MockFixture, caplog: pytest.LogCaptureFixture
+):
     mocker.patch(
         "reflex_cli.utils.hosting.get_authenticated_client",
         return_value=hosting.AuthenticatedClient(
@@ -586,9 +607,6 @@ def test_deploy_non_interactive_with_invalid_project(mocker: MockFixture):
             response=mocker.Mock(json=lambda: {"detail": "project does not exist"}),
         ),
     )
-    mock_error = mocker.patch(
-        "reflex_cli.utils.console.error",
-    )
     with pytest.raises(click.exceptions.Exit):
         cli.deploy(
             app_name="app-name",
@@ -597,12 +615,14 @@ def test_deploy_non_interactive_with_invalid_project(mocker: MockFixture):
             interactive=False,
         )
 
-    mock_error.assert_called_with("project does not exist")
+    errors = _log_messages(caplog, logging.ERROR)
+    assert errors[-1] == "project does not exist"
 
 
 def test_deploy_create_deployment_multiple_apps_non_interactive(
     mocker: MockerFixture,
     mock_export_fn: Callable[[str, str, str, bool, bool, bool, bool], None],
+    caplog: pytest.LogCaptureFixture,
 ):
     mocker.patch(
         "reflex_cli.utils.hosting.get_selected_project",
@@ -622,7 +642,6 @@ def test_deploy_create_deployment_multiple_apps_non_interactive(
     mocker.patch(
         "reflex_cli.utils.hosting.get_project",
     )
-    console_error = mocker.patch("reflex_cli.utils.console.error")
     mocker.patch(
         "reflex_cli.utils.hosting.authenticated_token",
         return_value=("fake-code", {}),
@@ -639,9 +658,9 @@ def test_deploy_create_deployment_multiple_apps_non_interactive(
             interactive=False,
             token="fake-token",
         )
-    console_error.assert_called_once_with(
+    assert _log_messages(caplog, logging.ERROR) == [
         "Multiple apps with the name 'fake-app' found. Please provide a unique name."
-    )
+    ]
 
 
 def test_deploy_create_deployment_multiple_apps_interactive(

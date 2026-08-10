@@ -9,13 +9,17 @@ the Reflex Cloud dashboard (Organization → Cloud Providers).
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 import click
+from reflex_base.utils import log
 
 from reflex_cli import constants
 from reflex_cli.utils import console
 from reflex_cli.utils.exceptions import NotAuthenticatedError
+
+logger = logging.getLogger(__name__)
 
 
 @click.group()
@@ -41,9 +45,7 @@ def _resolve_org_id(org_id: str | None, client: Any) -> str:
 
     resolved = org_id or hosting.get_token_org_id(client)
     if not resolved:
-        console.error(
-            "Could not determine your organization. Pass --org-id explicitly."
-        )
+        logger.error("Could not determine your organization. Pass --org-id explicitly.")
         raise click.exceptions.Exit(1)
     return resolved
 
@@ -98,7 +100,7 @@ def providers_status(
                 detail = ex.response.json().get("detail")
             except (ValueError, AttributeError):
                 detail = ex.response.text
-            console.error(f"Failed to fetch GCP status: {detail}")
+            logger.error(f"Failed to fetch GCP status: {detail}")
             raise click.exceptions.Exit(1) from ex
 
         if as_json:
@@ -108,19 +110,19 @@ def providers_status(
         configured = status.get("configured")
         allowed = status.get("allowed")
         if configured and allowed:
-            console.success("Google Cloud is connected and ready for deploys.")
+            logger.log(log.SUCCESS, "Google Cloud is connected and ready for deploys.")
         elif configured and not allowed:
-            console.warn(
+            logger.warning(
                 "Google Cloud is connected, but your plan does not allow GCP "
                 "deploys. GCP deploys require the Enterprise tier."
             )
         elif not configured and allowed:
-            console.warn(
+            logger.warning(
                 "Google Cloud is not connected yet. Connect it from the Reflex "
                 "Cloud dashboard: Organization -> Cloud Providers."
             )
         else:
-            console.warn(
+            logger.warning(
                 "Google Cloud is not connected, and GCP deploys require the "
                 "Enterprise tier. Contact sales@reflex.dev to upgrade."
             )
@@ -129,7 +131,7 @@ def providers_status(
         if status.get("region"):
             console.print(f"  Region:  {status['region']}")
     except NotAuthenticatedError as err:
-        console.error("You are not authenticated. Run `reflex login` to authenticate.")
+        logger.error("You are not authenticated. Run `reflex login` to authenticate.")
         raise click.exceptions.Exit(1) from err
 
 
@@ -183,7 +185,7 @@ def providers_list(
                 detail = ex.response.json().get("detail")
             except (ValueError, AttributeError):
                 detail = ex.response.text
-            console.error(f"Failed to list provider accounts: {detail}")
+            logger.error(f"Failed to list provider accounts: {detail}")
             raise click.exceptions.Exit(1) from ex
 
         if as_json:
@@ -207,5 +209,5 @@ def providers_list(
         ]
         console.print_table(rows, headers=headers)
     except NotAuthenticatedError as err:
-        console.error("You are not authenticated. Run `reflex login` to authenticate.")
+        logger.error("You are not authenticated. Run `reflex login` to authenticate.")
         raise click.exceptions.Exit(1) from err

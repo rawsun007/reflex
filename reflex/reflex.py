@@ -23,7 +23,6 @@ if TYPE_CHECKING:
     from typing import Literal
 
     from reflex_base.constants.base import LITERAL_ENV
-    from reflex_cli.constants.base import LogLevel as HostingLogLevel
 
 
 @click.group
@@ -686,7 +685,7 @@ def logout():
 
     check_version()
 
-    logout(_convert_reflex_loglevel_to_reflex_cli_loglevel(get_config().loglevel))
+    logout(get_config().loglevel)
 
 
 @click.group
@@ -966,7 +965,7 @@ def deploy(
         envfile=envfile,
         hostname=hostname,
         interactive=interactive,
-        loglevel=_convert_reflex_loglevel_to_reflex_cli_loglevel(config.loglevel),
+        loglevel=config.loglevel,
         token=token,
         project=project,
         project_name=project_name,
@@ -986,32 +985,6 @@ def rename(new_name: str):
 
     prerequisites.validate_app_name(new_name)
     rename_app(new_name, get_config().loglevel)
-
-
-def _convert_reflex_loglevel_to_reflex_cli_loglevel(
-    loglevel: constants.LogLevel,
-) -> HostingLogLevel:
-    """Convert a Reflex log level to a Reflex CLI log level.
-
-    Args:
-        loglevel: The Reflex log level to convert.
-
-    Returns:
-        The converted Reflex CLI log level.
-    """
-    from reflex_cli.constants.base import LogLevel as HostingLogLevel
-
-    if loglevel == constants.LogLevel.DEBUG:
-        return HostingLogLevel.DEBUG
-    if loglevel == constants.LogLevel.INFO:
-        return HostingLogLevel.INFO
-    if loglevel == constants.LogLevel.WARNING:
-        return HostingLogLevel.WARNING
-    if loglevel == constants.LogLevel.ERROR:
-        return HostingLogLevel.ERROR
-    if loglevel == constants.LogLevel.CRITICAL:
-        return HostingLogLevel.CRITICAL
-    return HostingLogLevel.INFO
 
 
 if find_spec("typer") and find_spec("typer.main"):
