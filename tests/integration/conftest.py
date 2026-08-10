@@ -1,9 +1,10 @@
 """Shared conftest for all integration tests."""
 
-import pytest
-from pytest_mock import MockerFixture
+import logging
 
-import reflex.app
+import pytest
+from reflex_base.utils import log
+
 from reflex.testing import AppHarness, AppHarnessProd
 
 
@@ -23,22 +24,37 @@ def app_harness_env(request):
 
 
 @pytest.fixture(autouse=True)
-def raise_console_error(request, mocker: MockerFixture):
-    """Spy on calls to `console.error` used by the framework.
+def raise_console_error(request):
+    """Capture error-level log records emitted by the framework.
 
     Help catch spurious error conditions that might otherwise go unnoticed.
 
-    If a test is marked with `ignore_console_error`, the spy will be ignored
-    after the test.
+    If a test is marked with `ignore_console_error`, captured errors are
+    ignored after the test.
 
     Args:
         request: The pytest request object.
-        mocker: The pytest mocker object.
 
     Yields:
         control to the test function.
     """
-    spy = mocker.spy(reflex.app.console, "error")
+
+    class _ErrorCapture(logging.Handler):
+        def __init__(self):
+            super().__init__(level=logging.ERROR)
+            self.records: list[logging.LogRecord] = []
+
+        def emit(self, record: logging.LogRecord):
+            self.records.append(record)
+
+    capture = _ErrorCapture()
+    loggers = [logging.getLogger(name) for name in log.ROOT_LOGGER_NAMES]
+    for logger in loggers:
+        logger.addHandler(capture)
     yield
+    for logger in loggers:
+        logger.removeHandler(capture)
     if "ignore_console_error" not in request.keywords:
-        spy.assert_not_called()
+        assert not capture.records, "\n".join(
+            record.getMessage() for record in capture.records
+        )
